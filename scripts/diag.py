@@ -6,8 +6,8 @@ torch.set_num_threads(16)
 clf = ZeroShotClassifier.load(sys.argv[1], device="cpu", max_len=320)
 spaces = json.load(open("data/spaces.json"))
 for name in sys.argv[2:]:
-    rows = [json.loads(l) for l in open(f"data/eval/{name}.jsonl")][:60]
-    labels = spaces["eval/" + name]
+    sp = "dev" if os.path.exists(f"data/dev/{name}.jsonl") else "eval"; rows = [json.loads(l) for l in open(f"data/{sp}/{name}.jsonl")][:60]
+    labels = spaces["eval/" + name] if sp == "eval" else json.load(open(f"data/dev/{name}.labels.json"))
     pred = collections.Counter(); pos = collections.Counter(); ok = 0; ok_shuf = 0
     for r in rows:
         lg = clf.logits([r["text"]], labels)[0]

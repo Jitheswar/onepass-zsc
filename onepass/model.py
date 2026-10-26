@@ -54,13 +54,18 @@ class OnePassModel(nn.Module):
             nn.init.zeros_(self.head[2].weight)
             nn.init.zeros_(self.head[2].bias)
 
-    def forward(self, input_ids, attention_mask, label_mask, text_mask, label_valid):
+    def forward(self, input_ids, attention_mask, label_mask, text_mask, label_valid, rel_pos=None, valid=None):
         """label_mask: (B, N, S) token membership of each label span.
         text_mask: (B, S) token membership of the text span.
         label_valid: (B, N) bool, False for padding labels.
+        rel_pos/valid: only for the packed layout (3-D attention mask + shared virtual positions).
         Returns raw logits (B, N); padded labels get -inf-ish values."""
-        out = self.encoder(input_ids=input_ids, attention_mask=attention_mask)
-        hs = out.last_hidden_state
+        if rel_pos is not None:
+            emb = self.encoder.embeddings(input_ids=input_ids, mask=valid.long())
+            hs = self.encoder.encoder(emb, attention_mask, output_hidden_states=False,
+                                      relative_pos=rel_pos.squeeze(0) if rel_pos.dim() == 4 else rel_pos[:1]).last_hidden_state
+        else:
+            hs = self.encoder(input_ids=input_ids, attention_mask=attention_mask).last_hidden_state
         lab = masked_mean(hs, label_mask)  # (B, N, D)
         txt = masked_mean(hs, text_mask.unsqueeze(1)).expand_as(lab)  # (B, N, D)
         feats = torch.cat([lab, txt, lab * txt, (lab - txt).abs()], dim=-1)
@@ -153,6 +158,10 @@ class Encoder:
 
 
 def build(backbone_name, max_len=256, nli_head=False, layout="labels_first", template=None):
+    if layout == "packed":
+        tok = AutoTokenizer.from_pretrained(backbone_name)
+        model = OnePassModel(backbone_name, nli_head=True)
+        return model, tok, PackedEncoder(tok, max_len=max_len, template=template or "This text is about {}.")
     tok = AutoTokenizer.from_pretrained(backbone_name)
     tok.add_special_tokens({"additional_special_tokens": [LABEL_TOKEN, TEXT_TOKEN]})
     model = OnePassModel(backbone_name, nli_head=nli_head)
@@ -164,3 +173,71 @@ def build(backbone_name, max_len=256, nli_head=False, layout="labels_first", tem
         for t in (LABEL_TOKEN, TEXT_TOKEN):
             w[tok.convert_tokens_to_ids(t)] = base + 0.02 * torch.randn_like(base)
     return model, tok, Encoder(tok, max_len=max_len, layout=layout, template=template)
+
+
+# ---------------------------------------------------------------------------------------------
+# "Packed NLI" one-pass layout:
+#   [CLS] text [SEP] [pad..] | [CLS] hyp_1 [SEP] [pad..] | [CLS] hyp_2 [SEP] [pad..] | ...
+# Text tokens attend only to the text; each hypothesis block attends to the text and to itself
+# (never to other labels), and every block gets the same virtual positions right after the text.
+# So each label is scored like an ordinary NLI (text, hypothesis) pair, but the text is encoded once
+# and all labels share one forward pass. The backbone's own entailment head scores each block.
+
+def hypothesis(label, template="This text is about {}."):
+    """Short labels become NLI hypotheses; labels that already read like sentences are kept."""
+    l = label.strip()
+    if l.endswith(".") or len(l.split()) > 8:
+        return l
+    return template.format(l)
+
+
+class PackedEncoder:
+    def __init__(self, tokenizer, max_len=512, max_text=256, max_hyp=24, template="This text is about {}.",
+                 bucket_size=256, max_position=512):
+        self.tok, self.max_len, self.max_text, self.max_hyp, self.template = tokenizer, max_len, max_text, max_hyp, template
+        self.bucket_size, self.max_position = bucket_size, max_position
+        self.layout = "packed"
+
+    def __call__(self, texts, label_lists):
+        from transformers.models.deberta_v2.modeling_deberta_v2 import make_log_bucket_position
+        tok = self.tok
+        B, N = len(texts), max(len(l) for l in label_lists)
+        all_labels = sorted({l for ls in label_lists for l in ls})
+        hyp_ids = dict(zip(all_labels, tok([hypothesis(l, self.template) for l in all_labels],
+                                           add_special_tokens=False)["input_ids"]))
+        Lh = max(len(hyp_ids[l][: self.max_hyp]) for l in all_labels) + 2  # [CLS] hyp [SEP]
+        txt = tok(list(texts), add_special_tokens=False, truncation=True, max_length=self.max_text)["input_ids"]
+        tmax = max(len(t) for t in txt)
+        tmax = max(1, min(tmax, self.max_len - N * Lh - 2))
+        R = tmax + 2
+        S = R + N * Lh
+        ids = torch.full((B, S), tok.pad_token_id, dtype=torch.long)
+        valid = torch.zeros((B, S), dtype=torch.bool)
+        text_tok = torch.zeros((B, S), dtype=torch.bool)
+        block = torch.full((B, S), -1, dtype=torch.long)  # -1 = text region, j = label slot j
+        label_mask = torch.zeros((B, N, S), dtype=torch.bool)
+        label_valid = torch.zeros((B, N), dtype=torch.bool)
+        for i, (t, labels) in enumerate(zip(txt, label_lists)):
+            t = t[:tmax]
+            seq = [tok.cls_token_id] + t + [tok.sep_token_id]
+            ids[i, : len(seq)] = torch.tensor(seq)
+            valid[i, : len(seq)] = True
+            text_tok[i, 1: 1 + len(t)] = True
+            for j, l in enumerate(labels):
+                h = [tok.cls_token_id] + hyp_ids[l][: self.max_hyp] + [tok.sep_token_id]
+                a = R + j * Lh
+                ids[i, a: a + len(h)] = torch.tensor(h)
+                valid[i, a: a + len(h)] = True
+                block[i, a: a + Lh] = j
+                label_mask[i, j, a: a + len(h)] = True
+                label_valid[i, j] = True
+        same = block.unsqueeze(2) == block.unsqueeze(1)
+        to_text = (block == -1).unsqueeze(1).expand(B, S, S)
+        attn = (same | to_text) & valid.unsqueeze(1) & valid.unsqueeze(2)
+        # virtual positions: text region 0..R-1, every label slot restarts at R
+        vp = torch.arange(S)
+        vp = torch.where(vp >= R, R + (vp - R) % Lh, vp)
+        rel = vp[:, None] - vp[None, :]
+        rel = make_log_bucket_position(rel, self.bucket_size, self.max_position).long().unsqueeze(0)
+        return dict(input_ids=ids, attention_mask=attn.long(), label_mask=label_mask, text_mask=text_tok,
+                    label_valid=label_valid, rel_pos=rel, valid=valid)

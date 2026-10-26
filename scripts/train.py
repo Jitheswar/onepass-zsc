@@ -36,7 +36,7 @@ p.add_argument("--alpha", type=float, default=0.5, help="source sampling weight 
 p.add_argument("--avg_every", type=int, default=0, help="multi-node: average weights across nodes every N steps (local SGD); 0 = sync every step")
 p.add_argument("--nli_head", action="store_true")
 p.add_argument("--init_from", default=None, help="checkpoint dir whose model.pt initialises the weights")
-p.add_argument("--layout", default="labels_first", choices=["labels_first", "text_first"])
+p.add_argument("--layout", default="labels_first", choices=["labels_first", "text_first", "packed"])
 p.add_argument("--log_every", type=int, default=50)
 p.add_argument("--accum", type=int, default=1, help="micro-batches per optimizer step")
 p.add_argument("--mix_prob", type=float, default=0.15)
@@ -186,7 +186,8 @@ def average_weights():
     for p, f in zip(ps, _unflatten_dense_tensors(flat, ps)):
         p.copy_(f)
 opt = torch.optim.AdamW([
-    {"params": core.encoder.parameters(), "lr": args.lr},
+    {"params": list(core.encoder.parameters()) + ([p for m in (core.pool_dense, core.cls) for p in m.parameters()]
+                                                if getattr(core, "nli_head", False) else []), "lr": args.lr},
     {"params": head_params, "lr": args.head_lr},
 ], weight_decay=0.01)
 warm = args.warmup
@@ -218,8 +219,8 @@ def save(tag):
     os.makedirs(d, exist_ok=True)
     torch.save(core.state_dict(), os.path.join(d, "model.pt"))
     tok.save_pretrained(d)
-    (core.encoder.config if not args.nli_head else _full_config()).save_pretrained(os.path.join(d, "encoder"))
-    json.dump({"backbone": args.backbone, "max_len": args.max_len, "nli_head": args.nli_head, "layout": args.layout}, open(os.path.join(d, "config.json"), "w"))
+    (core.encoder.config if not (args.nli_head or args.layout == "packed") else _full_config()).save_pretrained(os.path.join(d, "encoder"))
+    json.dump({"backbone": args.backbone, "max_len": args.max_len, "nli_head": args.nli_head or args.layout == "packed", "layout": args.layout}, open(os.path.join(d, "config.json"), "w"))
 
 
 model.train()

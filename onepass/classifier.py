@@ -14,7 +14,7 @@ import os
 
 import torch
 
-from .model import Encoder, OnePassModel, build
+from .model import Encoder, OnePassModel, PackedEncoder, build
 
 
 class ZeroShotClassifier:
@@ -35,7 +35,7 @@ class ZeroShotClassifier:
         tok = AutoTokenizer.from_pretrained(path)
         enc_dir = os.path.join(path, "encoder")
         conf = AutoConfig.from_pretrained(enc_dir if os.path.isdir(enc_dir) else cfg["backbone"])
-        model = OnePassModel(cfg["backbone"], nli_head=cfg.get("nli_head", False), config=conf)
+        model = OnePassModel(cfg["backbone"], nli_head=cfg.get("nli_head", False) or cfg.get("layout") == "packed", config=conf)
         model.encoder.resize_token_embeddings(max(len(tok), model.encoder.config.vocab_size))
         st = os.path.join(path, "model.safetensors")
         if os.path.exists(st):
@@ -49,7 +49,11 @@ class ZeroShotClassifier:
         model = model.to(dtype)
         cp = os.path.join(path, "calibration.json")
         calib = json.load(open(cp)) if os.path.exists(cp) else None
-        return cls(model, tok, Encoder(tok, max_len=max_len, layout=cfg.get("layout", "labels_first"), template=cfg.get("template")), calib, device)
+        if cfg.get("layout") == "packed":
+            enc = PackedEncoder(tok, max_len=max(max_len, 512), template=cfg.get("template") or "This text is about {}.")
+        else:
+            enc = Encoder(tok, max_len=max_len, layout=cfg.get("layout", "labels_first"), template=cfg.get("template"))
+        return cls(model, tok, enc, calib, device)
 
     def _chunks(self, labels):
         n = self.label_chunk
