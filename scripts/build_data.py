@@ -255,8 +255,8 @@ def synthetic(cap):
         d = load_dataset("MoritzLaurer/synthetic_zeroshot_mixtral_v0.1", cfg, split="train")
         groups = defaultdict(dict)
         for t, h, y in zip(d["text"], d[col], d["labels"]):
-            if t and h:
-                groups[t.strip()][h.strip()] = str(y) == "1"
+            if t and h:  # labels: 0 = entailment (true), 1 = not entailment
+                groups[t.strip()][h.strip()] = str(y) == "0"
         rows = [{"src": "synth_" + cfg.split("_")[-1], "text": t, "gold": [h for h, y in hs.items() if y], "cands": list(hs)}
                 for t, hs in groups.items() if len(hs) >= 2]
         random.shuffle(rows)
