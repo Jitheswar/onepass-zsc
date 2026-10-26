@@ -112,6 +112,7 @@ def main():
     ap.add_argument("--chunk", type=int, default=24)
     ap.add_argument("--write_calib", action="store_true")
     ap.add_argument("--device", default="cpu")
+    ap.add_argument("--split", default="eval", choices=["eval", "dev"])
     ap.add_argument("--out", default=None)
     a = ap.parse_args()
     torch.set_num_threads(a.threads)
@@ -135,14 +136,16 @@ def main():
         cal_y.append(y)
     T_in = fit_T(cal_logits, cal_y)
 
-    names = sorted(os.listdir(os.path.join(ROOT, "data/eval")))
+    sdir = os.path.join(ROOT, "data", a.split)
+    names = sorted(f for f in os.listdir(sdir) if f.endswith(".jsonl"))
     ev = {}
     for fn in names:
         name = fn[:-6]
-        rows = [json.loads(l) for l in open(os.path.join(ROOT, "data/eval", fn))]
+        rows = [json.loads(l) for l in open(os.path.join(sdir, fn))]
         if len(rows) > a.n:
             rows = [rows[i] for i in rng.choice(len(rows), a.n, replace=False)]
-        ev[name] = run(clf, rows, spaces["eval/" + name], a.bs)
+        labels = spaces["eval/" + name] if a.split == "eval" else json.load(open(os.path.join(sdir, name + ".labels.json")))
+        ev[name] = run(clf, rows, labels, a.bs)
     el = time.time() - t0
 
     T_all = fit_T([v[0] for v in ev.values()], [v[1] for v in ev.values()])
@@ -169,11 +172,11 @@ def main():
           + " / ".join(f"{avg[k]['ece']:.3f}" for k in keys)
           + f" | {np.mean([r['sigmoid_ece_lodo'] for r in res.values()]):.3f}")
     summary = {"ckpt": a.ckpt, "T_in": T_in, "T_all": T_all, "platt": [pa, pb], "per_dataset": res, "mean": avg}
-    out = a.out or os.path.join(a.ckpt, "eval.json")
+    out = a.out or os.path.join(a.ckpt, "eval.json" if a.split == "eval" else "dev.json")
     json.dump(summary, open(out, "w"), indent=1)
     if a.write_calib:
         json.dump({"softmax_T": T_all, "sigmoid_a": pa, "sigmoid_b": pb,
-                   "note": "fit on held-out zero-shot benchmark logits"},
+                   "note": f"fit on {a.split} split zero-shot logits"},
                   open(os.path.join(a.ckpt, "calibration.json"), "w"), indent=1)
         print("wrote calibration.json")
 

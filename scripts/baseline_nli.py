@@ -20,6 +20,7 @@ ap.add_argument("model")
 ap.add_argument("--n", type=int, default=300)
 ap.add_argument("--threads", type=int, default=16)
 ap.add_argument("--template", default="This example is {}.")
+ap.add_argument("--split", default="eval", choices=["eval", "dev"])
 a = ap.parse_args()
 torch.set_num_threads(a.threads)
 tok = AutoTokenizer.from_pretrained(a.model)
@@ -28,12 +29,13 @@ ent = [i for i, l in m.config.id2label.items() if l.lower().startswith("entail")
 spaces = json.load(open(os.path.join(ROOT, "data/spaces.json")))
 rng = np.random.RandomState(0)
 res, total_t, total_n = {}, 0.0, 0
-for fn in sorted(os.listdir(os.path.join(ROOT, "data/eval"))):
+SD = os.path.join(ROOT, "data", a.split)
+for fn in sorted(f for f in os.listdir(SD) if f.endswith(".jsonl")):
     name = fn[:-6]
-    rows = [json.loads(l) for l in open(os.path.join(ROOT, "data/eval", fn))]
+    rows = [json.loads(l) for l in open(os.path.join(SD, fn))]
     if len(rows) > a.n:
         rows = [rows[i] for i in rng.choice(len(rows), a.n, replace=False)]
-    labels = spaces["eval/" + name]
+    labels = spaces["eval/" + name] if a.split == "eval" else json.load(open(os.path.join(SD, name + ".labels.json")))
     idx = {l: i for i, l in enumerate(labels)}
     y = np.array([idx[r["gold"][0]] for r in rows])
     hyps = [a.template.format(l) for l in labels]
@@ -56,4 +58,4 @@ mean = {k: float(np.mean([r[k] for r in res.values()])) for k in ["acc", "f1", "
 print("MEAN", mean, f"texts/s {total_n/total_t:.2f}")
 os.makedirs(os.path.join(ROOT, "results"), exist_ok=True)
 json.dump({"model": a.model, "per_dataset": res, "mean": mean, "texts_per_s": total_n / total_t},
-          open(os.path.join(ROOT, "results", "baseline_" + a.model.replace("/", "_") + ".json"), "w"), indent=1)
+          open(os.path.join(ROOT, "results", ("dev_" if a.split == "dev" else "") + "baseline_" + a.model.replace("/", "_") + ".json"), "w"), indent=1)
