@@ -36,6 +36,7 @@ p.add_argument("--alpha", type=float, default=0.5, help="source sampling weight 
 p.add_argument("--avg_every", type=int, default=0, help="multi-node: average weights across nodes every N steps (local SGD); 0 = sync every step")
 p.add_argument("--nli_head", action="store_true")
 p.add_argument("--init_from", default=None, help="checkpoint dir whose model.pt initialises the weights")
+p.add_argument("--no_mlp", action="store_true", help="freeze the zero-initialised residual MLP head (NLI head only)")
 p.add_argument("--layout", default="labels_first", choices=["labels_first", "text_first", "packed"])
 p.add_argument("--log_every", type=int, default=50)
 p.add_argument("--accum", type=int, default=1, help="micro-batches per optimizer step")
@@ -160,6 +161,12 @@ if args.init_from:
 data_iter = iter(loader)  # fork data workers before CUDA is initialised (avoids fork deadlocks)
 model.to(args.device)
 head_params = list(model.head.parameters())
+if args.no_mlp:
+    # residual head stays exactly zero: in packed runs it learned label-only priors and destroyed text conditioning
+    assert float(model.head[2].weight.abs().sum()) == 0.0
+    for p_ in head_params:
+        p_.requires_grad_(False)
+    head_params = []
 core = model
 local_group = None
 if WORLD > 1 and args.avg_every:
@@ -188,8 +195,7 @@ def average_weights():
 opt = torch.optim.AdamW([
     {"params": list(core.encoder.parameters()) + ([p for m in (core.pool_dense, core.cls) for p in m.parameters()]
                                                 if getattr(core, "nli_head", False) else []), "lr": args.lr},
-    {"params": head_params, "lr": args.head_lr},
-], weight_decay=0.01)
+] + ([{"params": head_params, "lr": args.head_lr}] if head_params else []), weight_decay=0.01)
 warm = args.warmup
 
 
