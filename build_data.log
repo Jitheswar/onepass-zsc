@@ -1,0 +1,52 @@
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+ag_news              train= 40000 calib= 300 labels=4 e.g. ['world news', 'sports', 'business', 'science and technology']
+dbpedia              train= 40000 calib= 300 labels=14 e.g. ['company', 'educational institution', 'artist', 'athlete', 'office holder', 'means of transportation']
+yahoo                train= 40000 calib= 300 labels=10 e.g. ['society & culture', 'science & mathematics', 'health', 'education & reference', 'computers & internet', 'sports']
+go_emotions          train= 40000 calib= 300 labels=28 e.g. ['admiration', 'amusement', 'anger', 'annoyance', 'approval', 'caring']
+yelp_polarity        train= 40000 calib= 300 labels=2 e.g. ['negative', 'positive']
+amazon_polarity      train= 40000 calib= 300 labels=2 e.g. ['negative', 'positive']
+yelp_stars           train= 40000 calib= 300 labels=5 e.g. ['1 star', '2 stars', '3 stars', '4 stars', '5 stars']
+amazon_stars         train= 40000 calib= 300 labels=5 e.g. ['1 star', '2 stars', '3 stars', '4 stars', '5 stars']
+tweet_sentiment      train= 40000 calib= 300 labels=3 e.g. ['negative', 'neutral', 'positive']
+tweet_offensive      train= 11916 calib= 300 labels=2 e.g. ['not offensive', 'offensive']
+tweet_hate           train=  8993 calib= 300 labels=2 e.g. ['not hate speech', 'hate speech']
+tweet_irony          train=  2862 calib= 300 labels=2 e.g. ['not ironic', 'ironic']
+clinc                train= 15250 calib= 300 labels=151 e.g. ['restaurant reviews', 'nutrition info', 'account blocked', 'oil change how', 'time', 'weather']
+imdb                 train= 25000 calib= 300 labels=2 e.g. ['negative', 'positive']
+Repo card metadata block was not found. Setting CardData to empty.
+sst5                 train=  8544 calib= 300 labels=5 e.g. ['negative', 'neutral', 'positive', 'very negative', 'very positive']
+Repo card metadata block was not found. Setting CardData to empty.
+toxic                train= 40000 calib= 300 labels=2 e.g. ['not toxic', 'toxic']
+Repo card metadata block was not found. Setting CardData to empty.
+subj                 train=  8000 calib= 300 labels=2 e.g. ['objective', 'subjective']
+massive_intent       train= 11514 calib= 300 labels=60 e.g. ['alarm query', 'alarm remove', 'alarm set', 'audio volume down', 'audio volume mute', 'audio volume other']
+Repo card metadata block was not found. Setting CardData to empty.
+student_questions    train= 40000 calib= 300 labels=4 e.g. ['Biology', 'Chemistry', 'Maths', 'Physics']
+Repo card metadata block was not found. Setting CardData to empty.
+counterfactual       train=  5000 calib= 300 labels=2 e.g. ['counterfactual', 'not counterfactual']
+tweet_sent_extract   train= 26732 calib= 300 labels=3 e.g. ['negative', 'neutral', 'positive']
+Repo card metadata block was not found. Setting CardData to empty.
+trec_fine            train=  5452 calib= 300 labels=50 e.g. ['a group or organization of persons', 'abbreviation', 'an individual', 'animals', 'cities', 'colors']
+Repo card metadata block was not found. Setting CardData to empty.
+trec_coarse          train=  5452 calib= 300 labels=6 e.g. ['abbreviation', 'description or abstract concept', 'entity', 'location', 'number', 'person']
+fin_sentiment        train=  9543 calib= 300 labels=3 e.g. ['bearish', 'bullish', 'neutral']
+Repo card metadata block was not found. Setting CardData to empty.
+mnli 60000
+EVAL sst2               n=1821 labels=2 ['negative', 'positive']
+EVAL rotten_tomatoes    n=1066 labels=2 ['negative', 'positive']
+Repo card metadata block was not found. Setting CardData to empty.
+EVAL cr                 n=376 labels=2 ['negative', 'positive']
+EVAL bbc_news           n=1000 labels=5 ['business', 'entertainment', 'politics', 'sports', 'technology']
+Repo card metadata block was not found. Setting CardData to empty.
+EVAL 20newsgroups       n=2000 labels=20 ['atheism', 'baseball', 'cars', 'christianity', 'computer graphics']
+EVAL banking77          n=2000 labels=77 ['Refund not showing up', 'activate my card', 'age limit', 'apple pay or google pay', 'atm support']
+EVAL massive_scenario   n=2000 labels=18 ['alarm', 'audio', 'calendar', 'cooking', 'date and time']
+Repo card metadata block was not found. Setting CardData to empty.
+EVAL enron_spam         n=2000 labels=2 ['not spam', 'spam']
+EVAL sms_spam           n=2000 labels=2 ['not spam', 'spam']
+EVAL emotion            n=2000 labels=6 ['sadness', 'joy', 'love', 'anger', 'fear']
+Repo card metadata block was not found. Setting CardData to empty.
+EVAL hate_offensive     n=2000 labels=3 ['hate speech', 'neither offensive nor hateful', 'offensive language']
+EVAL fin_topic          n=2000 labels=20 ['analyst update', 'central banks', 'company and product news', 'treasuries and corporate debt', 'dividend']
+EVAL climate            n=400 labels=2 ['not about climate', 'about climate']
+train rows 644258 calib rows 7200
