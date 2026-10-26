@@ -33,15 +33,10 @@ class ZeroShotClassifier:
         from transformers import AutoConfig, AutoModel, AutoTokenizer
 
         tok = AutoTokenizer.from_pretrained(path)
-        model = OnePassModel.__new__(OnePassModel)
-        torch.nn.Module.__init__(model)
-        model.backbone_name = cfg["backbone"]
         enc_dir = os.path.join(path, "encoder")
         conf = AutoConfig.from_pretrained(enc_dir if os.path.isdir(enc_dir) else cfg["backbone"])
-        model.encoder = AutoModel.from_config(conf)
-        model.encoder.resize_token_embeddings(max(len(tok), conf.vocab_size))
-        d = conf.hidden_size
-        model.head = torch.nn.Sequential(torch.nn.Linear(4 * d, d), torch.nn.GELU(), torch.nn.Linear(d, 1))
+        model = OnePassModel(cfg["backbone"], nli_head=cfg.get("nli_head", False), config=conf)
+        model.encoder.resize_token_embeddings(max(len(tok), model.encoder.config.vocab_size))
         st = os.path.join(path, "model.safetensors")
         if os.path.exists(st):
             from safetensors.torch import load_file
@@ -54,7 +49,7 @@ class ZeroShotClassifier:
         model = model.to(dtype)
         cp = os.path.join(path, "calibration.json")
         calib = json.load(open(cp)) if os.path.exists(cp) else None
-        return cls(model, tok, Encoder(tok, max_len=max_len), calib, device)
+        return cls(model, tok, Encoder(tok, max_len=max_len, layout=cfg.get("layout", "labels_first"), template=cfg.get("template")), calib, device)
 
     def _chunks(self, labels):
         n = self.label_chunk

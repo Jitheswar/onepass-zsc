@@ -26,13 +26,33 @@ def masked_mean(h, mask):
 
 
 class OnePassModel(nn.Module):
-    def __init__(self, backbone_name, hidden_head=None):
+    def __init__(self, backbone_name, hidden_head=None, nli_head=False, config=None):
+        """nli_head=True: the backbone is an NLI cross-encoder; its entailment classifier is reused,
+        applied at each label's [L] marker, as the starting score (the MLP head starts at zero)."""
         super().__init__()
         self.backbone_name = backbone_name
-        self.encoder = AutoModel.from_pretrained(backbone_name, torch_dtype=torch.float32)
+        self.nli_head = nli_head
+        if nli_head:
+            from transformers import AutoModelForSequenceClassification
+            if config is not None:
+                full = AutoModelForSequenceClassification.from_config(config)
+            else:
+                full = AutoModelForSequenceClassification.from_pretrained(backbone_name, torch_dtype=torch.float32)
+            self.encoder = getattr(full, full.base_model_prefix)
+            self.pool_dense = full.pooler.dense
+            self.cls = full.classifier
+            id2 = {v.lower(): k for k, v in full.config.id2label.items()}
+            self.ent = id2["entailment"]
+            self.non = [i for i in range(full.config.num_labels) if i != self.ent]
+        else:
+            self.encoder = AutoModel.from_config(config) if config is not None else \
+                AutoModel.from_pretrained(backbone_name, torch_dtype=torch.float32)
         d = self.encoder.config.hidden_size
         h = hidden_head or d
         self.head = nn.Sequential(nn.Linear(4 * d, h), nn.GELU(), nn.Linear(h, 1))
+        if nli_head:
+            nn.init.zeros_(self.head[2].weight)
+            nn.init.zeros_(self.head[2].bias)
 
     def forward(self, input_ids, attention_mask, label_mask, text_mask, label_valid):
         """label_mask: (B, N, S) token membership of each label span.
@@ -45,13 +65,25 @@ class OnePassModel(nn.Module):
         txt = masked_mean(hs, text_mask.unsqueeze(1)).expand_as(lab)  # (B, N, D)
         feats = torch.cat([lab, txt, lab * txt, (lab - txt).abs()], dim=-1)
         logits = self.head(feats).squeeze(-1)
+        if self.nli_head:
+            first = label_mask.float().argmax(-1)  # position of each label's [L] marker
+            hm = torch.gather(hs, 1, first.unsqueeze(-1).expand(-1, -1, hs.shape[-1]))
+            z = self.cls(torch.nn.functional.gelu(self.pool_dense(hm)))
+            logits = logits + z[..., self.ent] - torch.logsumexp(z[..., self.non], -1)
         return logits.masked_fill(~label_valid, -1e4)
 
 
 class Encoder:
     """Turns (text, labels) pairs into model inputs."""
 
-    def __init__(self, tokenizer, max_len=256, max_label_tokens=16):
+    def __init__(self, tokenizer, max_len=256, max_label_tokens=16, layout="labels_first", template=None):
+        """layout: "labels_first" = [CLS] [L] l1 [L] l2 ... [T] text [SEP]
+                   "text_first"   = [CLS] [T] text [SEP] [L] l1 [L] l2 ... [SEP]  (mirrors NLI premise/hypothesis order)"""
+        assert layout in ("labels_first", "text_first")
+        self.layout = layout
+        self.template = template  # e.g. "This text is about {}." wraps every label as an NLI-style hypothesis
+        if template:
+            self.max_label_tokens = max_label_tokens + 12
         self.tok = tokenizer
         self.max_len = max_len
         self.max_label_tokens = max_label_tokens
@@ -63,10 +95,29 @@ class Encoder:
         B = len(texts)
         N = max(len(l) for l in label_lists)
         all_labels = sorted({l for ls in label_lists for l in ls})
-        lab_ids = dict(zip(all_labels, tok(all_labels, add_special_tokens=False)["input_ids"]))
+        shown = [self.template.format(l) if self.template else l for l in all_labels]
+        lab_ids = dict(zip(all_labels, tok(shown, add_special_tokens=False)["input_ids"]))
         txt_ids = tok(list(texts), add_special_tokens=False, truncation=True, max_length=self.max_len)["input_ids"]
         seqs, lspans, tspans = [], [], []
         for t_ids, labels in zip(txt_ids, label_lists):
+            if self.layout == "text_first":
+                lab_len = sum(1 + len(lab_ids[l][: self.max_label_tokens]) for l in labels)
+                budget = self.max_len - lab_len - 4
+                if budget < 8:
+                    raise ValueError("Too many / too long labels for max_len=%d" % self.max_len)
+                ids = [tok.cls_token_id, self.tid] + t_ids[:budget]
+                tspans.append((1, len(ids)))
+                ids.append(tok.sep_token_id)
+                spans = []
+                for l in labels:
+                    s = len(ids)
+                    ids.append(self.lid)
+                    ids.extend(lab_ids[l][: self.max_label_tokens])
+                    spans.append((s, len(ids)))
+                ids.append(tok.sep_token_id)
+                seqs.append(ids)
+                lspans.append(spans)
+                continue
             ids = [tok.cls_token_id]
             spans = []
             for l in labels:
@@ -101,10 +152,10 @@ class Encoder:
                     text_mask=text_mask, label_valid=label_valid)
 
 
-def build(backbone_name, max_len=256):
+def build(backbone_name, max_len=256, nli_head=False, layout="labels_first", template=None):
     tok = AutoTokenizer.from_pretrained(backbone_name)
     tok.add_special_tokens({"additional_special_tokens": [LABEL_TOKEN, TEXT_TOKEN]})
-    model = OnePassModel(backbone_name)
+    model = OnePassModel(backbone_name, nli_head=nli_head)
     if len(tok) > model.encoder.get_input_embeddings().weight.shape[0]:
         model.encoder.resize_token_embeddings(len(tok))
     with torch.no_grad():
@@ -112,4 +163,4 @@ def build(backbone_name, max_len=256):
         base = w[[tok.cls_token_id, tok.sep_token_id]].mean(0)
         for t in (LABEL_TOKEN, TEXT_TOKEN):
             w[tok.convert_tokens_to_ids(t)] = base + 0.02 * torch.randn_like(base)
-    return model, tok, Encoder(tok, max_len=max_len)
+    return model, tok, Encoder(tok, max_len=max_len, layout=layout, template=template)

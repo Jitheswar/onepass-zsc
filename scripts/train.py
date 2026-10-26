@@ -34,6 +34,9 @@ p.add_argument("--warmup", type=int, default=500)
 p.add_argument("--keep_every", type=int, default=0, help="also keep a copy of every Nth-step checkpoint")
 p.add_argument("--alpha", type=float, default=0.5, help="source sampling weight = size^alpha")
 p.add_argument("--avg_every", type=int, default=0, help="multi-node: average weights across nodes every N steps (local SGD); 0 = sync every step")
+p.add_argument("--nli_head", action="store_true")
+p.add_argument("--init_from", default=None, help="checkpoint dir whose model.pt initialises the weights")
+p.add_argument("--layout", default="labels_first", choices=["labels_first", "text_first"])
 p.add_argument("--log_every", type=int, default=50)
 p.add_argument("--accum", type=int, default=1, help="micro-batches per optimizer step")
 p.add_argument("--mix_prob", type=float, default=0.15)
@@ -133,7 +136,7 @@ class Stream(IterableDataset):
                 yield make_example(self.rows[rng.choice(by_src[k])])
 
 
-model, tok, enc = build(args.backbone, max_len=args.max_len)
+model, tok, enc = build(args.backbone, max_len=args.max_len, nli_head=args.nli_head, layout=args.layout)
 
 
 def collate(batch):
@@ -150,6 +153,10 @@ def collate(batch):
 loader = DataLoader(Stream(os.path.join(ROOT, args.data)), batch_size=args.bs, collate_fn=collate, num_workers=args.workers, prefetch_factor=8,
                     worker_init_fn=lambda _: torch.set_num_threads(1))
 
+if args.init_from:
+    model.load_state_dict(torch.load(os.path.join(args.init_from, "model.pt"), map_location="cpu"))
+    if RANK == 0:
+        print("initialised from", args.init_from, flush=True)
 data_iter = iter(loader)  # fork data workers before CUDA is initialised (avoids fork deadlocks)
 model.to(args.device)
 head_params = list(model.head.parameters())
@@ -197,6 +204,13 @@ json.dump(vars(args), open(os.path.join(args.out, "args.json"), "w"), indent=1)
 log = open(os.path.join(args.out, "log.txt"), "a")
 
 
+def _full_config():
+    from transformers import AutoConfig
+    c = AutoConfig.from_pretrained(args.backbone)
+    c.vocab_size = core.encoder.config.vocab_size
+    return c
+
+
 def save(tag):
     if RANK != 0:
         return
@@ -204,8 +218,8 @@ def save(tag):
     os.makedirs(d, exist_ok=True)
     torch.save(core.state_dict(), os.path.join(d, "model.pt"))
     tok.save_pretrained(d)
-    core.encoder.config.save_pretrained(os.path.join(d, "encoder"))
-    json.dump({"backbone": args.backbone, "max_len": args.max_len}, open(os.path.join(d, "config.json"), "w"))
+    (core.encoder.config if not args.nli_head else _full_config()).save_pretrained(os.path.join(d, "encoder"))
+    json.dump({"backbone": args.backbone, "max_len": args.max_len, "nli_head": args.nli_head, "layout": args.layout}, open(os.path.join(d, "config.json"), "w"))
 
 
 model.train()
