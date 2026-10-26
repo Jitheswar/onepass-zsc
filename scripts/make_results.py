@@ -32,9 +32,9 @@ for i, f in enumerate(a.ours):
     r = json.load(open(f))
     name = a.ours_name[i] if i < len(a.ours_name) else f
     rows.append({"name": f"**{name} (ours)**", "acc": r["mean"]["raw"]["acc"], "f1": r["mean"]["raw"]["f1"],
-                 "ece": r["mean"]["lodo"]["ece"], "ece_raw": r["mean"]["raw"]["ece"],
+                 "ece": r["mean"].get("shipped", r["mean"]["lodo"])["ece"], "ece_raw": r["mean"]["raw"]["ece"],
                  "speed": float(a.ours_speed[i]) if i < len(a.ours_speed) else None, "passes": "1",
-                 "per": {k: v["raw"]["acc"] for k, v in r["per_dataset"].items()}, "note": "calibrated (ECE is leave-one-dataset-out)", "ours": True})
+                 "per": {k: v["raw"]["acc"] for k, v in r["per_dataset"].items()}, "note": "calibration fitted on separate dev set", "ours": True})
 rows.sort(key=lambda r: -r["acc"])
 datasets = sorted(rows[0]["per"])
 
@@ -42,8 +42,8 @@ out = ["# Benchmark results", "",
        "Zero-shot accuracy on **13 public datasets that were never used for training** our model",
        "(300 random test examples each, same examples for every model, all labels of each dataset offered at once).",
        "ECE = expected calibration error of the top prediction (lower is better). Baseline ECEs are on their raw",
-       "probabilities; ours uses the shipped temperature, measured leave-one-dataset-out so the temperature never",
-       "sees the dataset it is scored on. Speeds are CPU texts/second on this cluster and only roughly comparable.", "",
+       "probabilities; ours uses the shipped calibration, which was fitted on a separate dev set of 8 other unseen",
+       "datasets (never on this benchmark). Speeds are CPU texts/second on this cluster and only roughly comparable.", "",
        "| model | forward passes | mean acc | macro-F1 | ECE | texts/s (CPU) | note |", "|---|---|---|---|---|---|---|"]
 for r in rows:
     sp = f"{r['speed']:.1f}" if r["speed"] else "-"

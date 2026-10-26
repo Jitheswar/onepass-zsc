@@ -148,6 +148,8 @@ def main():
         ev[name] = run(clf, rows, labels, a.bs)
     el = time.time() - t0
 
+    cpath = os.path.join(a.ckpt, "calibration.json")
+    shipped_T = json.load(open(cpath))["softmax_T"] if os.path.exists(cpath) and a.split == "eval" else 1.0
     T_all = fit_T([v[0] for v in ev.values()], [v[1] for v in ev.values()])
     pa, pb = fit_platt([v[0] for v in ev.values()], [v[1] for v in ev.values()])
     res = {}
@@ -159,11 +161,12 @@ def main():
         oh = np.zeros_like(lg)
         oh[np.arange(len(y)), y] = 1
         res[name] = {"n": len(y), "labels": lg.shape[1], "raw": metrics(lg, y, 1.0), "T_in": metrics(lg, y, T_in),
+                     "shipped": metrics(lg, y, shipped_T),
                      "lodo": metrics(lg, y, T_lodo), "T_lodo": T_lodo,
                      "sigmoid_ece_lodo": float(binary_ece(sig.ravel(), oh.ravel()))}
-    keys = ["raw", "T_in", "lodo"]
+    keys = ["raw", "T_in", "lodo", "shipped"]
     print(f"\nckpt={a.ckpt}  T_in={T_in:.3f}  T_all={T_all:.3f}  platt a={pa:.3f} b={pb:.3f}  ({el/60:.1f} min)")
-    print(f"{'dataset':18s} {'n':>5s} {'#lab':>4s} {'acc':>6s} {'F1':>6s} | ECE raw / T_in / LODO | sigECE")
+    print(f"{'dataset':18s} {'n':>5s} {'#lab':>4s} {'acc':>6s} {'F1':>6s} | ECE raw / T_in / LODO / shipped | sigECE")
     for name, r in res.items():
         print(f"{name:18s} {r['n']:5d} {r['labels']:4d} {r['raw']['acc']:6.3f} {r['raw']['f1']:6.3f} | "
               + " / ".join(f"{r[k]['ece']:.3f}" for k in keys) + f" | {r['sigmoid_ece_lodo']:.3f}")
@@ -171,7 +174,7 @@ def main():
     print(f"{'MEAN':18s} {'':5s} {'':4s} {avg['raw']['acc']:6.3f} {avg['raw']['f1']:6.3f} | "
           + " / ".join(f"{avg[k]['ece']:.3f}" for k in keys)
           + f" | {np.mean([r['sigmoid_ece_lodo'] for r in res.values()]):.3f}")
-    summary = {"ckpt": a.ckpt, "T_in": T_in, "T_all": T_all, "platt": [pa, pb], "per_dataset": res, "mean": avg}
+    summary = {"ckpt": a.ckpt, "shipped_T": shipped_T, "T_in": T_in, "T_all": T_all, "platt": [pa, pb], "per_dataset": res, "mean": avg}
     out = a.out or os.path.join(a.ckpt, "eval.json" if a.split == "eval" else "dev.json")
     json.dump(summary, open(out, "w"), indent=1)
     if a.write_calib:
