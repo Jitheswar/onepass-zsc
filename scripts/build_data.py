@@ -16,7 +16,10 @@ from datasets import load_dataset
 random.seed(0)
 OUT = os.path.join(os.path.dirname(__file__), "..", "data")
 os.makedirs(os.path.join(OUT, "eval"), exist_ok=True)
-TRAIN_CAP = 40000
+TRAIN_CAP = int(os.environ.get("TRAIN_CAP", 40000))
+OUT_NAME = os.environ.get("OUT_NAME", "train.jsonl")
+SYNTH_CAP = int(os.environ.get("SYNTH_CAP", 0))
+MNLI_CAP = int(os.environ.get("MNLI_CAP", 60000))
 CALIB_CAP = 300
 EVAL_CAP = 2000
 
@@ -239,6 +242,30 @@ EVAL = {
 }
 
 
+def synthetic(cap):
+    """MoritzLaurer/synthetic_zeroshot_mixtral_v0.1: (text, hypothesis, 0/1) pairs on web text,
+    grouped by text into multi-candidate rows. No overlap with the eval benchmarks."""
+    if cap <= 0:
+        return []
+    cfgs = {"mixtral_refinedweb_categories": "category", "mixtral_refinedweb_characteristics": "hypothesis",
+            "mixtral_written_texts_for_tasks": "hypothesis", "mixtral_written_texts_for_tasks_v2": "hypothesis",
+            "mixtral_written_texts_for_tasks_v3": "hypothesis", "mixtral_written_texts_for_tasks_v4": "hypothesis"}
+    out = []
+    for cfg, col in cfgs.items():
+        d = load_dataset("MoritzLaurer/synthetic_zeroshot_mixtral_v0.1", cfg, split="train")
+        groups = defaultdict(dict)
+        for t, h, y in zip(d["text"], d[col], d["labels"]):
+            if t and h:
+                groups[t.strip()][h.strip()] = str(y) == "1"
+        rows = [{"src": "synth_" + cfg.split("_")[-1], "text": t, "gold": [h for h, y in hs.items() if y], "cands": list(hs)}
+                for t, hs in groups.items() if len(hs) >= 2]
+        random.shuffle(rows)
+        rows = rows[: cap // len(cfgs)]
+        print(f"synthetic {cfg}: {len(groups)} texts -> {len(rows)} rows, avg cands {sum(len(r['cands']) for r in rows)/max(1,len(rows)):.1f}", flush=True)
+        out += rows
+    return out
+
+
 def write(path, rows):
     with open(path, "w") as f:
         for r in rows:
@@ -267,14 +294,17 @@ def main():
         g[1][r["hypothesis"]] = r["label"] == 0
     rows = list(groups.values())
     random.shuffle(rows)
-    nli = [{"src": "mnli", "text": p, "gold": [h for h, y in hs.items() if y], "cands": list(hs.keys())} for p, hs in rows[:60000]]
+    nli = [{"src": "mnli", "text": p, "gold": [h for h, y in hs.items() if y], "cands": list(hs.keys())} for p, hs in rows[:MNLI_CAP]]
     train += nli
     print("mnli", len(nli))
 
+    train += synthetic(SYNTH_CAP)
     random.shuffle(train)
-    write(os.path.join(OUT, "train.jsonl"), train)
+    write(os.path.join(OUT, OUT_NAME), train)
     write(os.path.join(OUT, "calib.jsonl"), calib)
 
+    if os.environ.get("SKIP_EVAL"):
+        print("train rows", len(train)); return
     for name, fn in EVAL.items():
         d, tf, gf, n = fn()
         rows = take(rows_from(d.shuffle(seed=0).select(range(min(len(d), EVAL_CAP * 2))), tf, gf), EVAL_CAP)

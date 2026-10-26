@@ -111,11 +111,12 @@ def main():
     ap.add_argument("--max_len", type=int, default=320)
     ap.add_argument("--chunk", type=int, default=24)
     ap.add_argument("--write_calib", action="store_true")
+    ap.add_argument("--device", default="cpu")
     ap.add_argument("--out", default=None)
     a = ap.parse_args()
     torch.set_num_threads(a.threads)
     rng = np.random.RandomState(0)
-    clf = ZeroShotClassifier.load(a.ckpt, device="cpu", max_len=a.max_len)
+    clf = ZeroShotClassifier.load(a.ckpt, device=a.device, max_len=a.max_len, dtype=torch.float32)
     clf.label_chunk = a.chunk
     spaces = json.load(open(os.path.join(ROOT, "data/spaces.json")))
 

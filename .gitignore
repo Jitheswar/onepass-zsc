@@ -8,3 +8,7 @@ checkpoints/
 *.safetensors
 *.bin
 .cache/
+.venv-gpu/
+logs/
+dist/
+*.log

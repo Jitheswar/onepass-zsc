@@ -1,65 +1,0 @@
-W1026 12:34:13.883000 3391408 torch/distributed/run.py:982] 
-W1026 12:34:13.883000 3391408 torch/distributed/run.py:982] *****************************************
-W1026 12:34:13.883000 3391408 torch/distributed/run.py:982] Setting OMP_NUM_THREADS environment variable for each process to be 1 in default, to avoid your system being overloaded, please further tune the variable for optimal performance in your application as needed. 
-W1026 12:34:13.883000 3391408 torch/distributed/run.py:982] *****************************************
-[transformers] `torch_dtype` is deprecated! Use `dtype` instead!
-[transformers] `torch_dtype` is deprecated! Use `dtype` instead!
-[transformers] `torch_dtype` is deprecated! Use `dtype` instead!
-/home/ch.jitheswar/ALT/.venv/lib/python3.12/site-packages/torch/jit/_script.py:1491: FutureWarning: `torch.jit.script` is deprecated. Please switch to `torch.compile` or `torch.export`.
-  warnings.warn(
-/home/ch.jitheswar/ALT/.venv/lib/python3.12/site-packages/torch/jit/_script.py:1491: FutureWarning: `torch.jit.script` is deprecated. Please switch to `torch.compile` or `torch.export`.
-  warnings.warn(
-/home/ch.jitheswar/ALT/.venv/lib/python3.12/site-packages/torch/jit/_script.py:1491: FutureWarning: `torch.jit.script` is deprecated. Please switch to `torch.compile` or `torch.export`.
-  warnings.warn(
-[transformers] `torch_dtype` is deprecated! Use `dtype` instead!
-Loading weights:   0%|          | 0/198 [00:00<?, ?it/s]Loading weights:   0%|          | 0/198 [00:00<?, ?it/s]Loading weights: 100%|██████████| 198/198 [00:00<00:00, 4862.02it/s]
-Loading weights: 100%|██████████| 198/198 [00:00<00:00, 5698.39it/s]
-Loading weights:   0%|          | 0/198 [00:00<?, ?it/s][transformers] [1mDebertaV2Model LOAD REPORT[0m from: cross-encoder/nli-deberta-v3-xsmall
-Key                 | Status     |  | 
---------------------+------------+--+-
-classifier.weight   | UNEXPECTED |  | 
-classifier.bias     | UNEXPECTED |  | 
-pooler.dense.weight | UNEXPECTED |  | 
-pooler.dense.bias   | UNEXPECTED |  | 
-
-Notes:
-- UNEXPECTED:	can be ignored when loading from different task/architecture; not ok if you expect identical arch.
-[transformers] [1mDebertaV2Model LOAD REPORT[0m from: cross-encoder/nli-deberta-v3-xsmall
-Key                 | Status     |  | 
---------------------+------------+--+-
-pooler.dense.bias   | UNEXPECTED |  | 
-classifier.weight   | UNEXPECTED |  | 
-pooler.dense.weight | UNEXPECTED |  | 
-classifier.bias     | UNEXPECTED |  | 
-
-Notes:
-- UNEXPECTED:	can be ignored when loading from different task/architecture; not ok if you expect identical arch.
-Loading weights: 100%|██████████| 198/198 [00:00<00:00, 5930.25it/s]
-[transformers] [1mDebertaV2Model LOAD REPORT[0m from: cross-encoder/nli-deberta-v3-xsmall
-Key                 | Status     |  | 
---------------------+------------+--+-
-classifier.bias     | UNEXPECTED |  | 
-pooler.dense.weight | UNEXPECTED |  | 
-pooler.dense.bias   | UNEXPECTED |  | 
-classifier.weight   | UNEXPECTED |  | 
-
-Notes:
-- UNEXPECTED:	can be ignored when loading from different task/architecture; not ok if you expect identical arch.
-/home/ch.jitheswar/ALT/.venv/lib/python3.12/site-packages/torch/jit/_script.py:1491: FutureWarning: `torch.jit.script` is deprecated. Please switch to `torch.compile` or `torch.export`.
-  warnings.warn(
-Loading weights:   0%|          | 0/198 [00:00<?, ?it/s]Loading weights: 100%|██████████| 198/198 [00:00<00:00, 4987.10it/s]
-[transformers] [1mDebertaV2Model LOAD REPORT[0m from: cross-encoder/nli-deberta-v3-xsmall
-Key                 | Status     |  | 
---------------------+------------+--+-
-classifier.weight   | UNEXPECTED |  | 
-pooler.dense.bias   | UNEXPECTED |  | 
-classifier.bias     | UNEXPECTED |  | 
-pooler.dense.weight | UNEXPECTED |  | 
-
-Notes:
-- UNEXPECTED:	can be ignored when loading from different task/architecture; not ok if you expect identical arch.
-step 50 loss 1.0949 bce 0.3261 ce 1.4280 lr 4.00e-06 ex/s 22.7 elapsed 2.3m seq 187
-step 100 loss 0.9817 bce 0.4784 ce 0.8340 lr 8.00e-06 ex/s 22.2 elapsed 4.8m seq 188
-step 150 loss 0.8332 bce 0.4708 ce 0.6289 lr 1.20e-05 ex/s 21.9 elapsed 7.3m seq 188
-step 200 loss 0.7274 bce 0.3308 ce 1.0729 lr 1.60e-05 ex/s 21.7 elapsed 9.8m seq 187
-step 250 loss 0.6602 bce 0.1884 ce 0.2955 lr 2.00e-05 ex/s 21.8 elapsed 12.3m seq 188

@@ -94,6 +94,24 @@ class ZeroShotClassifier:
             out.append(self.probs_from_logits(lg, multi_label))
         return torch.cat(out)
 
+    def ask(self, text, questions, multi_label=False):
+        """Answer several label questions about one text in a single forward pass.
+
+        questions: {"sentiment": ["positive", "negative"], "topic": ["sports", "politics", "tech"]}
+        Returns {"sentiment": {...probs...}, "topic": {...probs...}}; probabilities are
+        normalised within each question (or independent per label if multi_label=True).
+        """
+        flat, spans = [], {}
+        for q, labels in questions.items():
+            spans[q] = (len(flat), len(flat) + len(labels))
+            flat.extend(labels)
+        lg = self.logits([text], flat)[0]
+        out = {}
+        for q, (a, b) in spans.items():
+            p = self.probs_from_logits(lg[a:b].unsqueeze(0), multi_label)[0]
+            out[q] = dict(sorted(zip(questions[q], p.tolist()), key=lambda kv: -kv[1]))
+        return out
+
     def __call__(self, text, labels, multi_label=False):
         single = isinstance(text, str)
         texts = [text] if single else list(text)
