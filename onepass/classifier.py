@@ -17,6 +17,20 @@ import torch
 from .model import Encoder, OnePassModel, PackedEncoder, build
 
 
+def calibrated_softmax(logits, c):
+    """Single-label calibration. The temperature and a small mix with the uniform distribution both
+    depend on the number of labels n: T = exp(t0 + t1 ln n), eps = sigmoid(m0 + m1 ln n).
+    Older calibration files only have softmax_T."""
+    n = logits.shape[-1]
+    ln = torch.log(torch.tensor(float(n)))
+    t = c["t0"] + c.get("t1", 0.0) * ln if "t0" in c else torch.log(torch.tensor(float(c["softmax_T"])))
+    p = torch.softmax(logits / torch.exp(t), dim=-1)
+    if "m0" in c:
+        eps = torch.sigmoid(c["m0"] + c["m1"] * ln)
+        p = (1 - eps) * p + eps / n
+    return p
+
+
 class ZeroShotClassifier:
     def __init__(self, model, tok, enc, calib=None, device="cpu", label_chunk=24):
         self.model = model.eval().to(device)
@@ -84,7 +98,7 @@ class ZeroShotClassifier:
         c = self.calib
         if multi_label:
             return torch.sigmoid(c["sigmoid_a"] * logits + c["sigmoid_b"])
-        return torch.softmax(logits / c["softmax_T"], dim=-1)
+        return calibrated_softmax(logits, c)
 
     def predict(self, texts, labels, multi_label=False, batch_size=32):
         out = []

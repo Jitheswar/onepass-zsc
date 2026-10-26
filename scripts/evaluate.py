@@ -21,6 +21,7 @@ from sklearn.metrics import f1_score
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from onepass import ZeroShotClassifier  # noqa: E402
+from onepass.classifier import calibrated_softmax  # noqa: E402
 
 ROOT = os.path.join(os.path.dirname(__file__), "..")
 
@@ -84,8 +85,26 @@ def fit_platt(logit_list, y_list):
     return float(a), float(b)
 
 
+def fit_shipped(logit_list, y_list):
+    """Label-count-aware calibration (see onepass.classifier.calibrated_softmax), fit by mean per-dataset NLL."""
+    lg = [torch.tensor(l).float() for l in logit_list]
+    ys = [torch.tensor(y).long() for y in y_list]
+    th = torch.tensor([0.0, 0.0, -3.0, 0.0], requires_grad=True)
+    opt = torch.optim.Adam([th], lr=0.05)
+    for _ in range(1500):
+        opt.zero_grad()
+        c = {"t0": th[0], "t1": th[1], "m0": th[2], "m1": th[3]}
+        loss = sum(-torch.log(calibrated_softmax(l, c)[torch.arange(len(y)), y] + 1e-9).mean() for l, y in zip(lg, ys)) / len(lg)
+        loss.backward()
+        opt.step()
+    return dict(zip(["t0", "t1", "m0", "m1"], th.detach().tolist()))
+
+
 def metrics(logits, y, T):
-    p = torch.softmax(torch.tensor(logits) / T, -1).numpy()
+    if isinstance(T, dict):
+        p = calibrated_softmax(torch.tensor(logits).float(), T).numpy()
+    else:
+        p = torch.softmax(torch.tensor(logits) / T, -1).numpy()
     pred = p.argmax(1)
     nll = float(-np.log(p[np.arange(len(y)), y] + 1e-12).mean())
     return {"acc": float((pred == y).mean()), "f1": float(f1_score(y, pred, average="macro")),
@@ -114,6 +133,7 @@ def main():
     ap.add_argument("--device", default="cpu")
     ap.add_argument("--split", default="eval", choices=["eval", "dev"])
     ap.add_argument("--out", default=None)
+    ap.add_argument("--dump", default=None, help="save raw logits + gold per dataset to this .npz")
     a = ap.parse_args()
     torch.set_num_threads(a.threads)
     rng = np.random.RandomState(0)
@@ -147,9 +167,11 @@ def main():
         labels = spaces["eval/" + name] if a.split == "eval" else json.load(open(os.path.join(sdir, name + ".labels.json")))
         ev[name] = run(clf, rows, labels, a.bs)
     el = time.time() - t0
+    if a.dump:
+        np.savez(a.dump, **{f"{k}__lg": v[0] for k, v in ev.items()}, **{f"{k}__y": v[1] for k, v in ev.items()})
 
     cpath = os.path.join(a.ckpt, "calibration.json")
-    shipped_T = json.load(open(cpath))["softmax_T"] if os.path.exists(cpath) and a.split == "eval" else 1.0
+    shipped_T = json.load(open(cpath)) if os.path.exists(cpath) and a.split == "eval" else 1.0
     T_all = fit_T([v[0] for v in ev.values()], [v[1] for v in ev.values()])
     pa, pb = fit_platt([v[0] for v in ev.values()], [v[1] for v in ev.values()])
     res = {}
@@ -178,7 +200,8 @@ def main():
     out = a.out or os.path.join(a.ckpt, "eval.json" if a.split == "eval" else "dev.json")
     json.dump(summary, open(out, "w"), indent=1)
     if a.write_calib:
-        json.dump({"softmax_T": T_all, "sigmoid_a": pa, "sigmoid_b": pb,
+        json.dump({"softmax_T": T_all, **fit_shipped([v[0] for v in ev.values()], [v[1] for v in ev.values()]),
+                   "sigmoid_a": pa, "sigmoid_b": pb,
                    "note": f"fit on {a.split} split zero-shot logits"},
                   open(os.path.join(a.ckpt, "calibration.json"), "w"), indent=1)
         print("wrote calibration.json")

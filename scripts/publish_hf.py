@@ -4,7 +4,7 @@ python scripts/publish_hf.py runs/deb_xs/last --repo Jitheswar/onepass-zsc-xsmal
 
 Gate (on held-out zero-shot benchmarks, see scripts/evaluate.py):
   * mean accuracy above the strongest leak-free baseline (its own multi-pass starting checkpoint)
-  * mean ECE with the shipped (dev-fitted) calibration <= 0.08
+  * mean ECE with the shipped (dev-fitted) calibration below the same baseline's ECE
 """
 import argparse
 import glob
@@ -22,7 +22,7 @@ ap = argparse.ArgumentParser()
 ap.add_argument("ckpt")
 ap.add_argument("--repo", required=True)
 ap.add_argument("--min_gain", type=float, default=0.0)
-ap.add_argument("--max_ece", type=float, default=0.08)
+ap.add_argument("--max_ece", type=float, default=None, help="default: the baseline's own ECE (must be better calibrated)")
 ap.add_argument("--baseline", default="results/baseline_MoritzLaurer_deberta-v3-base-zeroshot-v2.0-c.json",
                 help="strongest leak-free baseline the model must beat")
 ap.add_argument("--dry_run", action="store_true")
@@ -32,8 +32,10 @@ ev = json.load(open(os.path.join(a.ckpt, "eval.json")))
 base = json.load(open(os.path.join(ROOT, a.baseline)))
 acc, ece = ev["mean"]["raw"]["acc"], ev["mean"]["shipped"]["ece"]
 b_acc = base["mean"]["acc"]
-print(f"model acc {acc:.3f} vs {base['model']} {b_acc:.3f} (need > +{a.min_gain}); shipped-calibration ECE {ece:.3f} (need <= {a.max_ece})")
-if acc <= b_acc + a.min_gain or ece > a.max_ece:
+if a.max_ece is None:
+    a.max_ece = base["mean"]["ece"]
+print(f"model acc {acc:.3f} vs {base['model']} {b_acc:.3f} (need > +{a.min_gain}); shipped-calibration ECE {ece:.3f} (need < {a.max_ece:.3f})")
+if acc <= b_acc + a.min_gain or ece >= a.max_ece:
     sys.exit("QUALITY GATE FAILED - not uploading")
 if not os.path.exists(os.path.join(a.ckpt, "calibration.json")):
     sys.exit("missing calibration.json - run evaluate.py --write_calib first")
@@ -62,8 +64,9 @@ tags: [zero-shot-classification, text-classification, calibration]
 # {a.repo.split('/')[-1]}
 
 Zero-shot text classifier: any text + any list of labels -> calibrated probabilities in **one forward pass**.
-All candidate labels and the text are encoded together (`[CLS] [L] label1 [L] label2 ... [T] text [SEP]`),
-so cost barely grows with the number of labels. Backbone: `{json.load(open(os.path.join(a.ckpt, 'config.json')))['backbone']}`.
+The text and one NLI hypothesis per label ("This text is about {{label}}.") are packed into a single sequence
+with a block attention mask (each hypothesis sees the text and itself) and shared relative positions, so the text
+is encoded once and every label is scored by the NLI entailment head in the same forward pass. Backbone: `{json.load(open(os.path.join(a.ckpt, 'config.json')))['backbone']}`.
 
 ## Usage
 ```python
@@ -85,7 +88,9 @@ fitted on a separate dev set of 8 other unseen datasets.
 {rows}
 | **mean** | | **{acc:.3f}** | **{b_acc:.3f}** | **{ece:.3f}** |
 
-Calibration: single-label softmax temperature T={ev['T_all']:.3f}; multi-label sigmoid Platt a={ev['platt'][0]:.3f}, b={ev['platt'][1]:.3f}.
+Calibration (`calibration.json`, fitted on the dev set only): single-label temperature and uniform-mixing that
+depend on the number of labels; multi-label sigmoid Platt scaling.
+Baseline ECE on the same benchmark: {base['mean']['ece']:.3f}.
 """
 open(os.path.join(stage, "README.md"), "w").write(card)
 print("staged at", stage)
