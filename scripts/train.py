@@ -136,6 +136,7 @@ def save(tag):
     os.makedirs(d, exist_ok=True)
     torch.save(core.state_dict(), os.path.join(d, "model.pt"))
     tok.save_pretrained(d)
+    core.encoder.config.save_pretrained(os.path.join(d, "encoder"))
     json.dump({"backbone": args.backbone, "max_len": args.max_len}, open(os.path.join(d, "config.json"), "w"))
 
 
