@@ -33,6 +33,7 @@ p.add_argument("--workers", type=int, default=3)
 p.add_argument("--warmup", type=int, default=500)
 p.add_argument("--keep_every", type=int, default=0, help="also keep a copy of every Nth-step checkpoint")
 p.add_argument("--alpha", type=float, default=0.5, help="source sampling weight = size^alpha")
+p.add_argument("--avg_every", type=int, default=0, help="multi-node: average weights across nodes every N steps (local SGD); 0 = sync every step")
 p.add_argument("--log_every", type=int, default=50)
 p.add_argument("--accum", type=int, default=1, help="micro-batches per optimizer step")
 p.add_argument("--mix_prob", type=float, default=0.15)
@@ -153,9 +154,30 @@ data_iter = iter(loader)  # fork data workers before CUDA is initialised (avoids
 model.to(args.device)
 head_params = list(model.head.parameters())
 core = model
-if WORLD > 1:
+local_group = None
+if WORLD > 1 and args.avg_every:
+    # one DDP group per node (fast shared-memory sync); nodes only meet every avg_every steps
+    per_node = int(os.environ.get("SLURM_NTASKS_PER_NODE", "1").split("(")[0])
+    for n in range(WORLD // per_node):
+        g = dist.new_group(list(range(n * per_node, (n + 1) * per_node)))
+        if RANK // per_node == n:
+            local_group = g
+    if per_node > 1:
+        model = torch.nn.parallel.DistributedDataParallel(model, process_group=local_group)
+        core = model.module
+elif WORLD > 1:
     model = torch.nn.parallel.DistributedDataParallel(model)
     core = model.module
+
+
+def average_weights():
+    from torch._utils import _flatten_dense_tensors, _unflatten_dense_tensors
+    ps = [p.data for p in core.parameters()]
+    flat = _flatten_dense_tensors(ps)
+    dist.all_reduce(flat)
+    flat /= WORLD
+    for p, f in zip(ps, _unflatten_dense_tensors(flat, ps)):
+        p.copy_(f)
 opt = torch.optim.AdamW([
     {"params": core.encoder.parameters(), "lr": args.lr},
     {"params": head_params, "lr": args.head_lr},
@@ -223,6 +245,11 @@ for micro, b in enumerate(data_iter, 1):
         el = time.time() - t0
         msg = f"step {step} loss {ema:.4f} bce {bce.item():.4f} ce {ce.item():.4f} lr {sched.get_last_lr()[0]:.2e} ex/s {step*args.bs*args.accum*WORLD/el:.1f} elapsed {el/60:.1f}m seq {seq_sum/step:.0f}"
         print(msg, flush=True); log.write(msg + "\n"); log.flush()
+    if WORLD > 1 and args.avg_every and step % args.avg_every == 0:
+        ta = time.time()
+        average_weights()
+        if RANK == 0 and step % (args.avg_every * 5) == 0:
+            print(f"averaged weights across nodes in {time.time() - ta:.1f}s", flush=True)
     if step % args.save_every == 0:
         save("last")
         if args.keep_every and step % args.keep_every == 0:
@@ -232,5 +259,7 @@ for micro, b in enumerate(data_iter, 1):
         dist.all_reduce(stop)
     if stop.item() > 0:
         break
+if WORLD > 1 and args.avg_every:
+    average_weights()
 save("last")
 print("done", flush=True)
