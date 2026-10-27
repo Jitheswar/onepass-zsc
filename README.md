@@ -49,8 +49,8 @@ only on synthetic data + MNLI/FEVER, so none of the benchmark datasets leak into
 ## Hardware
 
 ~185M parameters: ~0.37 GB of weights in fp16. Runs comfortably on an RTX 3050 (6 GB VRAM) / 16 GB RAM laptop,
-and on CPU (peak ~2.1 GB RAM in fp32). On 16 CPU threads it classifies 14.5 texts/s with each benchmark's full
-label set, 1.7x faster than running the same backbone once per label (8.3 texts/s).
+and on CPU (peak ~2.2 GB RAM in fp32). On 16 CPU threads it classifies 12.8 texts/s with each benchmark's full
+label set, 1.5x faster than running the same backbone once per label (8.3 texts/s).
 
 ## Evaluation protocol
 
